@@ -186,7 +186,7 @@ class IndexButton(QWidget):
         self.stopbutton = QPushButton(u'开始下单')
         self.filebutton.clicked.connect(self.openfiledialog)
         self.startbutton.clicked.connect(self.prestartorder)
-        self.stopbutton.clicked.connect(self.stopbutton)
+        self.stopbutton.clicked.connect(self.stoporder)
         self.filethread = FileThread()
         self.orderthread = OrderThread()
         self.tbrw = TextBrowser()
