@@ -7,7 +7,7 @@ from PySide.QtCore import *
 from PySide.QtGui import *
 reload(sys)
 sys.setdefaultencoding('utf8')
-filename = dict()
+ctx = dict()
 
 
 def lineno():
@@ -15,27 +15,57 @@ def lineno():
     return inspect.currentframe().f_back.f_lineno
 
 
-class FileSg(QObject):
-    selected = Signal(unicode)
+def csv_processing(filename):
+    with open(filename) as f:
+        base_info = f.read()
+
+    pre_user_info_list = [i.split(',') for i in base_info.split('\n')[1:] if i]
+
+    return pre_user_info_list
+
+
+class PublicSg(QObject):
+    """
+    :param dict: It will determine which type data could be to pass to Signal
+    """
+    selected = Signal(dict)
 
     def __init__(self):
         QObject.__init__(self)
 
 
 class FileThread(QThread):
-
+    """
+    This used to be csv file processing.
+    """
     def __init__(self, parent=None):
         QThread.__init__(self, parent)
-        self.sg = FileSg()
+        self.sg = PublicSg()
         self.setObjectName('i_FileThread')
 
     def run(self):
-        self.sg.selected.emit('<h4 style="color:red">' + filename.get('fname') +
-                              '</h4>' + '\n')
+        # self.sg.selected.emit('<h4 style="color:red">' + filename.get('fname') +
+        #                       '</h4>' + '\n')
+        self.sg.selected.emit(ctx)
+
+
+class OrderThread(QThread):
+    """
+    This for Order Thread
+    """
+    def __init__(self):
+        super(OrderThread, self).__init__()
+        self.sg = PublicSg()
+        self.setObjectName('i_order_thread')
+
+    def run(self, *args, **kwargs):
+        self.sg.selected.emit(ctx)
 
 
 class MajorTabWindow(QWidget):
-
+    """
+    add three tab widget to main tab window
+    """
     def __init__(self, parent=None):
         super(MajorTabWindow, self).__init__(parent)
 
@@ -55,67 +85,79 @@ class MajorTabWindow(QWidget):
         self.setGeometry(600, 600, 700, 600)
 
 
-data_list = None
-header = None
-
-
 class TextBrowser(QWidget):
-
+    """
+    Generate Table to show file that from filedialog.
+    """
     def __init__(self):
         super(TextBrowser, self).__init__()
         self.initui()
 
-    def initui(self):
+    def initui(self,):
         hbox = QHBoxLayout(self)
         self.textbr = QTableWidget()
         hbox.addWidget(self.textbr)
         font = QFont("Courier New", 14)
         self.textbr.setFont(font)
         self.textbr.resizeColumnsToContents()
-        self.textbr.setRowCount(10)
-        self.textbr.setColumnCount(7)
-        indexitem = QTableWidgetItem(u'   ')
-        serialitem = QTableWidgetItem(u'编号')
-        chooseitem = QTableWidgetItem(u'选中')
-        logitem = QTableWidgetItem(u'运行日志')
-        pwditem = QTableWidgetItem(u'密码')
-        piditem = QTableWidgetItem(u'商品编号')
-        purchaseitem = QTableWidgetItem(u'购买数量')
-        provinceitem = QTableWidgetItem(u'省')
-        cityitem = QTableWidgetItem(u'市')
-        districtitem = QTableWidgetItem(u'县/区')
-        detailitem = QTableWidgetItem(u'详细地址')
-        postcodeitem = QTableWidgetItem(u'邮编')
-        recieveritem = QTableWidgetItem(u'收货人')
-        mobileitem = QTableWidgetItem(u'手机号码')
-        newItem = QTableWidgetItem(u"中文测试")
-        for i in range(11):
-            self.textbr.setVerticalHeaderItem(i, indexitem)
-        self.textbr.setHorizontalHeaderItem(0, serialitem)
-        self.textbr.setHorizontalHeaderItem(1, chooseitem)
-        self.textbr.setHorizontalHeaderItem(2, logitem)
-        self.textbr.setHorizontalHeaderItem(3, detailitem)
-        self.textbr.setHorizontalHeaderItem(4, postcodeitem)
-        self.textbr.setHorizontalHeaderItem(5, recieveritem)
-        self.textbr.setHorizontalHeaderItem(6, mobileitem)
-        self.textbr.setItem(1, 1, newItem)
-        self.textbr.setColumnWidth(2, 1000)
-        for i in range(10):
-            chkitem = QTableWidgetItem()
-            chkitem.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            chkitem.setCheckState(Qt.Checked)
-            self.textbr.setItem(i, 1, chkitem)
-            chkitem.setSelected(True)
+        self.textbr.setColumnCount(14)
+        self.indexitem = QTableWidgetItem(u'   ')
+        self.serialitem = QTableWidgetItem(u'编号')
+        self.chooseitem = QTableWidgetItem(u'选中')
+        self.usernameitem = QTableWidgetItem(u'登录名')
+        self.logitem = QTableWidgetItem(u'运行日志')
+        self.pwditem = QTableWidgetItem(u'密码')
+        self.piditem = QTableWidgetItem(u'商品编号')
+        self.purchaseitem = QTableWidgetItem(u'购买数量')
+        self.provinceitem = QTableWidgetItem(u'省')
+        self.cityitem = QTableWidgetItem(u'市')
+        self.districtitem = QTableWidgetItem(u'县/区')
+        self.detailitem = QTableWidgetItem(u'详细地址')
+        self.postcodeitem = QTableWidgetItem(u'邮编')
+        self.recieveritem = QTableWidgetItem(u'收货人')
+        self.mobileitem = QTableWidgetItem(u'手机号码')
+        self.newItem = QTableWidgetItem(u"中文测试")
+
+        self.textbr.setHorizontalHeaderItem(0, self.serialitem)
+        self.textbr.setHorizontalHeaderItem(1, self.usernameitem)
+        self.textbr.setHorizontalHeaderItem(2, self.chooseitem)
+        self.textbr.setHorizontalHeaderItem(3, self.logitem)
+        self.textbr.setHorizontalHeaderItem(4, self.pwditem)
+        self.textbr.setHorizontalHeaderItem(5, self.piditem)
+        self.textbr.setHorizontalHeaderItem(6, self.purchaseitem)
+        self.textbr.setHorizontalHeaderItem(7, self.provinceitem)
+        self.textbr.setHorizontalHeaderItem(8, self.cityitem)
+        self.textbr.setHorizontalHeaderItem(9, self.districtitem)
+        self.textbr.setHorizontalHeaderItem(10, self.detailitem)
+        self.textbr.setHorizontalHeaderItem(11, self.postcodeitem)
+        self.textbr.setHorizontalHeaderItem(12, self.recieveritem)
+        self.textbr.setHorizontalHeaderItem(13, self.mobileitem)
+        self.textbr.setItem(1, 1, self.newItem)
+        self.textbr.setColumnWidth(3, 1000)
+        self.textbr.setColumnWidth(1, 200)
         self.textbr.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setLayout(hbox)
 
     def printlog(self, data):
         print(lineno(), data)
-        self.textbr.insertHtml(data)
+        self.textbr.setRowCount(data['file_length'])
+        for i in range(data['file_length']):
+            self.textbr.setVerticalHeaderItem(i, QTableWidgetItem(u'   '))
+            self.textbr.setItem(i, 0, QTableWidgetItem(unicode(i+1)))
+            self.textbr.setItem(i, 1, QTableWidgetItem(unicode(data['account'][i])))
+            self.textbr.setItem(i, 4, QTableWidgetItem(unicode(data['pwd'][i])))
+            chkitem = QTableWidgetItem()
+            chkitem.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            chkitem.setCheckState(Qt.Checked)
+            self.textbr.setItem(i, 2, chkitem)
+            chkitem.setSelected(True)
+        self.setFocus()
 
 
 class Captcha(QWidget):
-
+    """
+    Show the Captcha image at the bottom of left.
+    """
     def __init__(self):
         super(Captcha, self).__init__()
         self.initUI()
@@ -124,10 +166,12 @@ class Captcha(QWidget):
         hbox = QHBoxLayout(self)
         pixmap = QPixmap("pysidelogo.png")
         lbl = QLabel(self)
+        lbl.setFrameStyle(QFrame.Panel | QFrame.Sunken)
         lbl.setPixmap(pixmap)
         hbox.addWidget(lbl)
         self.setLayout(hbox)
-        self.setGeometry(300, 300, 80, 70)
+        # self.setGeometry(300, 300, 80, 70)
+        lbl.setAlignment(Qt.AlignBottom | Qt.AlignRight)
 
 
 class IndexButton(QWidget):
@@ -141,8 +185,11 @@ class IndexButton(QWidget):
         self.startbutton = QPushButton(u'暂停下单')
         self.stopbutton = QPushButton(u'开始下单')
         self.filebutton.clicked.connect(self.openfiledialog)
+        self.startbutton.clicked.connect(self.prestartorder)
+        self.stopbutton.clicked.connect(self.stopbutton)
+        self.filethread = FileThread()
+        self.orderthread = OrderThread()
         self.tbrw = TextBrowser()
-
         hbox = QHBoxLayout(self)
         hbox.addStretch(1)
         hbox.addWidget(self.filebutton)
@@ -150,17 +197,24 @@ class IndexButton(QWidget):
         hbox.addWidget(self.stopbutton)
 
     def openfiledialog(self):
-        self.filethread = FileThread()
 
         dialog = QFileDialog()
-        # dialog.setNameFilter(("Excel File(*.xls *.xlsx)"))
         fname, _ = dialog.getOpenFileName(self, 'Open file', '/home')
-        filename['fname'] = fname
+        ctx['fname'] = fname
+        raw_data = csv_processing(fname)
+        user_account = [i[0] for i in raw_data]
+        pwd = [i[1] for i in raw_data]
+        ctx['csvfile'] = raw_data
+        ctx['file_length'] = raw_data.__len__()
+        ctx['account'] = user_account
+        ctx['pwd'] = pwd
+
+
         self.filethread.sg.selected.connect(self.preprintlog)
         self.filethread.start()
 
         print('%s: Is Thread Running? %s' % (lineno(),
-                                             self.filethread.isRunning()))
+                                            self.filethread.isRunning()))
         print('%s: What is IdealThread Count %s' % (lineno(),
                                                     self.filethread.idealThreadCount()))
         print('%s: What is My Name? %s' % (lineno(),
@@ -168,12 +222,21 @@ class IndexButton(QWidget):
 
     def preprintlog(self, data):
         print('%s: Is Thread Running? %s' % (lineno(),
-                                             self.filethread.isRunning()))
-        # self.textbrw.textbr.insertHtml(data)
+                                            self.filethread.isRunning()))
         self.tbrw.printlog(data)
         print(lineno(), data)
         print('%s: Is Thread Finished? %s' % (lineno(),
                                               self.filethread.isFinished()))
+
+    def prestartorder(self):
+        self.orderthread.sg.selected.connect(self.prestartorder)
+        self.filethread.start()
+
+    def startorder(self):
+        pass
+
+    def stoporder(self):
+        pass
 
 
 class FileWidget(QWidget):
@@ -213,23 +276,8 @@ class SetPanel(QWidget):
         self.setLayout(gridLayout)
 
 
-def csv_processing(filename):
-    with open(filename) as f:
-        base_info = f.read()
-
-    pre_user_info_list = [i.split(',') for i in base_info.split('\n')[1:] if i]
-
-    return pre_user_info_list
-
-# header = ([u'用户名', u'全选', ' MP (deg C)', u'日志'])
-raw_data = csv_processing('account.csv')
-data_list = ([tuple(i[:2] + i[3:5]) for i in raw_data])
-
-
 if __name__ == '__main__':
-
     app = QApplication(sys.argv)
-
     tabdialog = MajorTabWindow()
     tabdialog.show()
     sys.exit(app.exec_())
