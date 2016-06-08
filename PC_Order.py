@@ -75,8 +75,6 @@ class FileThread(QThread):
         self.setObjectName('i_FileThread')
 
     def run(self):
-        # self.sg.selected.emit('<h4 style="color:red">' + filename.get('fname') +
-        #                       '</h4>' + '\n')
         self.sg.selected.emit(ctx)
 
 
@@ -250,7 +248,7 @@ class Captcha(QWidget):
     def __init__(self):
         super(Captcha, self).__init__()
         hbox = QHBoxLayout(self)
-        pixmap = QPixmap("pysidelogo.png")
+        pixmap = QPixmap("images/pysidelogo.png")
         lbl = QLabel(self)
         lbl.setFrameStyle(QFrame.Panel | QFrame.Sunken)
         lbl.setPixmap(pixmap)
@@ -308,7 +306,7 @@ class IndexButton(QWidget):
         print('%s: Is Thread Running? %s' % (lineno(),
                                              self.filethread.isRunning()))
         self.tbrw.printlog(data)
-        print(lineno(), data)
+        # print(lineno(), data)
         print('%s: Is Thread Finished? %s' % (lineno(),
                                               self.filethread.isFinished()))
 
