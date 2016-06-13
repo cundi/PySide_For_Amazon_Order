@@ -120,19 +120,16 @@ class MakeOrder(object):
             return False
         return True
 
-    @staticmethod
-    def printlog(mystr):
-        ctx['mystr'] = mystr
-
     def make_order(self, data):
         i = data['idx']
+        t = ctx['tabrw']
         self.driver.set_window_size(1366, 768)
         self.driver.get(url)
         self.driver.save_screenshot('login_screen.png')
         time.sleep(1)
         username = data['account']
         password = data['pwd']
-        self.printlog("开始登录")
+        t.printlog(i, "开始登录")
         print('login, start')
         user = self.driver.find_element_by_id('ap_email')
         user.send_keys(username)
@@ -143,8 +140,8 @@ class MakeOrder(object):
         self.driver.find_element_by_id("signInSubmit").click()
         self.driver.save_screenshot('before_login_success.png')
         if self.check_exists_by_id("auth-error-message-box"):
-            self.printlog('密码不正确')
-        self.printlog('登录成功')
+            t.printlog(i, '密码不正确')
+        t.printlog(i, '登录成功')
         print(u'当前用户的cookies字典内容：{}'.format(self.driver.get_cookies()))
         self.driver.save_screenshot('login_success.png')
         time.sleep(1)
@@ -204,8 +201,8 @@ class TextBrowser(QWidget):
             self.textbr.setItem(i, 2, chkitem)
             chkitem.setSelected(True)
 
-    def print_log(self):
-        self.textbr.setItem(ctx['idx'], 3, QTableWidgetItem(unicode(data['mystr'])))
+    def printlog(self, i, s):
+        self.textbr.setItem(i, 3, QTableWidgetItem(unicode(s)))
 
 
 class MajorTabWindow(QWidget):
@@ -276,6 +273,7 @@ class IndexTab(QWidget):
         self.filethread.sg.selected.connect(self.preprintlog)
         ctx['filethread'] = self.filethread
         self.tbrw = TextBrowser()
+        ctx['tabrw'] = self.tbrw
         hbox = QHBoxLayout(self)
         hbox.addStretch(1)
         hbox.addWidget(self.filebutton)
@@ -306,9 +304,9 @@ class IndexTab(QWidget):
 
     @staticmethod
     def prestartorder():
+        ctx['orderthreads'] = list()
         for i, u in enumerate(ctx['user_list']):
             orderthread = OrderThread(i)
-            ctx['orderthreads'] = list()
             ctx['orderthreads'].append(orderthread)
             ctx['name'] = u[0]
             ctx['idx'] = i
