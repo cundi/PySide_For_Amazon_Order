@@ -3,7 +3,9 @@ import inspect
 import logging
 import sys
 import time
+import subprocess
 
+from threading import Thread
 from PySide.QtCore import *
 from PySide.QtGui import *
 from selenium import webdriver
@@ -18,20 +20,21 @@ logging.basicConfig(level=logging.DEBUG,
 # 定义一个StreamHandler，将INFO级别或更高的日志信息打印到标准错误，并将其添加到当前的日志处理对象#
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
-console.setFormatter(formatter)
+# formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+# console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 
 reload(sys)
 sys.setdefaultencoding('utf8')
 ctx = dict()
+thread_list = list()
 
-url = 'https://www.amazon.cn/ap/signin?_encoding=UTF8&openid.assoc_handle=cnflex&openid.claimed_id=\
+url = "https://www.amazon.cn/ap/signin?_encoding=UTF8&openid.assoc_handle=cnflex&openid.claimed_id=\
 http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.identity=\
 http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.mode=checkid_setup&openid.ns=\
 http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.ns.pape=\
 http%3A%2F%2Fspecs.openid.net%2Fextensions%2Fpape%2F1.0&openid.pape.max_auth_age=0&openid.return_to=\
-https%3A%2F%2Fwww.amazon.cn%2F479-6640618-5803144%3Fref_%3Dnav_signin'
+https%3A%2F%2Fwww.amazon.cn%2F479-6640618-5803144%3Fref_%3Dnav_signin"
 phantomjs_path = r'/usr/local/bin/phantomjs'
 dcap = dict(DesiredCapabilities.PHANTOMJS)
 dcap["phantomjs.page.settings.userAgent"] = (
@@ -49,15 +52,22 @@ def csv_processing(filename):
     with open(filename) as f:
         base_info = f.read()
 
-    pre_user_info_list = [i.split(',') for i in base_info.split('\n')[1:] if i]
+    pre_user_info_list = [i.split(',') for i in base_info.split('\n') if i]
 
     return pre_user_info_list
 
 
-class PublicSg(QObject):
+class FIleSg(QObject):
     """
     It will determine which type data could be to pass to Signal
     """
+    selected = Signal(dict)
+
+    def __init__(self):
+        QObject.__init__(self)
+
+
+class OrderSg(QObject):
     selected = Signal(dict)
 
     def __init__(self):
@@ -69,13 +79,15 @@ class FileThread(QThread):
     This used to be csv file processing.
     """
 
-    def __init__(self, parent=None):
-        QThread.__init__(self, parent)
-        self.sg = PublicSg()
-        self.setObjectName('i_FileThread')
+    def __init__(self):
+        super(FileThread, self).__init__()
+        self.sg = FIleSg()
+        self.name = 'i_file_thread'
 
     def run(self):
+        print("Starting " + self.name)
         self.sg.selected.emit(ctx)
+        print("Exiting " + self.name)
 
 
 class OrderThread(QThread):
@@ -83,70 +95,117 @@ class OrderThread(QThread):
     This for Order Thread
     """
 
-    def __init__(self):
+    def __init__(self, num):
         super(OrderThread, self).__init__()
-        self.sg = PublicSg()
-        self.mk = MakeOrder()
-        self.setObjectName('i_order_thread')
+        self.sg = OrderSg()
+        self.name = 'i_order_thread_{}'.format(num)
+        self.mo = MakeOrder()
+        self.exiting = True
 
     def run(self):
-        self.sg.selected.emit(ctx)
+        print("Starting{},{}".format(self.name, self.isRunning()))
+        if not self.exiting:
+            self.mo.make_order(ctx)
 
-    def mkod(self, data):
-        self.mk.make_order(data)
 
-
-class MakeOrder:
-
+class MakeOrder(object):
     def __init__(self):
-        self.textbr = QTableWidget()
-        self.driver = webdriver.PhantomJS(executable_path=phantomjs_path, desired_capabilities=dcap)
+        self.driver = webdriver.PhantomJS(
+            executable_path=phantomjs_path, desired_capabilities=dcap)
 
-    def check_exists_by_id(ele_id):
+    def check_exists_by_id(self, ele_id):
         try:
             self.driver.find_element_by_id(ele_id)
         except NoSuchElementException:
             return False
         return True
 
+    @staticmethod
+    def printlog(mystr):
+        ctx['mystr'] = mystr
+
     def make_order(self, data):
+        i = data['idx']
         self.driver.set_window_size(1366, 768)
         self.driver.get(url)
         self.driver.save_screenshot('login_screen.png')
-        for i in range(len(data['account'])):
-            time.sleep(1)
-            username = data['account'][i]
-            password = data['pwd'][i]
-            # pid = data['pid']
-            # buy_count = data['buy_count']
-            # nickname = data['nickname']
-            # postcode = data['postcode']
-            # phone = data['phone']
-            # address = data['address']
-            self.textbr.setItem(i, 3, QTableWidgetItem(u'开始登录'))
-            user = self.driver.find_element_by_id('ap_email')
-            user.send_keys(username)
-            time.sleep(1)
-            pwd = self.driver.find_element_by_id('ap_password')
-            pwd.send_keys(password)
-            time.sleep(1)
-            self.driver.find_element_by_id("signInSubmit").click()
-            self.driver.save_screenshot('before_login_success.png')
-            if self.check_exists_by_id("auth-error-message-box"):
-                self.textbr.setItem(i, 3, QTableWidgetItem(u'密码不正确'))
-            self.textbr.setItem(i, 3, QTableWidgetItem(u'登录成功'))
-            print(u'当前用户的cookies字典内容：{}'.format(self.driver.get_cookies()))
-            self.driver.save_screenshot('login_success.png')
-            time.sleep(1)
-            self.driver.get(
-                'https://www.amazon.cn/gp/collect-coupon/handler/redeem-coupon-detailpage.html?\
-                ref_=pu_redeem_coupon&encryptedPromotionId=A28K8TGDBC7AKO')
-            time.sleep(1)
-            self.driver.delete_all_cookies()
-            print(u'已经删除了cookies： {}'.format(self.driver.get_cookies()))
-            self.driver.get('https://www.amazon.cn/gp/flex/sign-out.html/ref=nav__gno_signout?ie=UTF8&action=sign-out\
-                &path=%2Fgp%2Fyourstore%2Fhome&signIn=1&useRedirectOnSuccess=1')
-            self.driver.quit()
+        time.sleep(1)
+        username = data['account']
+        password = data['pwd']
+        self.printlog("开始登录")
+        print('login, start')
+        user = self.driver.find_element_by_id('ap_email')
+        user.send_keys(username)
+        time.sleep(1)
+        pwd = self.driver.find_element_by_id('ap_password')
+        pwd.send_keys(password)
+        time.sleep(1)
+        self.driver.find_element_by_id("signInSubmit").click()
+        self.driver.save_screenshot('before_login_success.png')
+        if self.check_exists_by_id("auth-error-message-box"):
+            self.printlog('密码不正确')
+        self.printlog('登录成功')
+        print(u'当前用户的cookies字典内容：{}'.format(self.driver.get_cookies()))
+        self.driver.save_screenshot('login_success.png')
+        time.sleep(1)
+        self.driver.get(
+            "https://www.amazon.cn/gp/collect-coupon/handler/redeem-coupon-detailpage.html?\
+            ref_=pu_redeem_coupon&encryptedPromotionId=A28K8TGDBC7AKO")
+        time.sleep(1)
+        self.driver.delete_all_cookies()
+        print(u'已经删除了cookies： {}'.format(self.driver.get_cookies()))
+        # self.driver.get("https://www.amazon.cn/gp/flex/sign-out.html/ref=nav__gno_signout?ie=UTF8&action=sign-out\
+        #     &path=%2Fgp%2Fyourstore%2Fhome&signIn=1&useRedirectOnSuccess=1")
+        # time.sleep(30)
+        self.driver.close()
+
+
+class TextBrowser(QWidget):
+    """
+    Generate Table to show file that from filedialog.
+    """
+
+    def __init__(self):
+        super(TextBrowser, self).__init__()
+        table_head = [u'编号', u'选中', u'登录名', u'运行日志', u'密码',
+                      u'商品编号', u'购买数量', u'省', u'市', u'县/区', u'详细地址',
+                      u'邮编', u'收货人', u'手机号码',
+                      ]
+        hbox = QHBoxLayout(self)
+        self.textbr = QTableWidget()
+        hbox.addWidget(self.textbr)
+        font = QFont("Courier New", 14)
+        self.textbr.setFont(font)
+        self.textbr.resizeColumnsToContents()
+        self.textbr.setColumnCount(14)
+        for i, h in enumerate(table_head):
+            self.idx = QTableWidgetItem(h)
+            self.textbr.setHorizontalHeaderItem(i, self.idx)
+        self.newItem = QTableWidgetItem(u"中文测试")
+
+        self.textbr.setItem(1, 1, self.newItem)
+        self.textbr.setColumnWidth(3, 1000)
+        self.textbr.setColumnWidth(1, 200)
+        self.textbr.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setLayout(hbox)
+
+    def compose_table(self, data):
+        self.textbr.setRowCount(data['length'])
+        for i, u in enumerate(data['user_list']):
+            self.textbr.setVerticalHeaderItem(i, QTableWidgetItem(u'   '))
+            self.textbr.setItem(i, 0, QTableWidgetItem(unicode(i + 1)))
+            self.textbr.setItem(i, 1, QTableWidgetItem(
+                unicode(data['account'][i])))
+            self.textbr.setItem(
+                i, 4, QTableWidgetItem(unicode(u[1])))
+            chkitem = QTableWidgetItem()
+            chkitem.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            chkitem.setCheckState(Qt.Checked)
+            self.textbr.setItem(i, 2, chkitem)
+            chkitem.setSelected(True)
+
+    def print_log(self):
+        self.textbr.setItem(ctx['idx'], 3, QTableWidgetItem(unicode(data['mystr'])))
 
 
 class MajorTabWindow(QWidget):
@@ -172,72 +231,18 @@ class MajorTabWindow(QWidget):
         self.setWindowTitle("Major Tab Window")
         self.setGeometry(600, 600, 700, 600)
 
+    def closeEvent(self, event):
 
-class TextBrowser(QWidget):
-    """
-    Generate Table to show file that from filedialog.
-    """
+        reply = QMessageBox.question(self, 'Message',
+                                     u"确定关闭窗口?", QMessageBox.Yes |
+                                     QMessageBox.No, QMessageBox.No)
 
-    def __init__(self):
-        super(TextBrowser, self).__init__()
-        hbox = QHBoxLayout(self)
-        self.textbr = QTableWidget()
-        hbox.addWidget(self.textbr)
-        font = QFont("Courier New", 14)
-        self.textbr.setFont(font)
-        self.textbr.resizeColumnsToContents()
-        self.textbr.setColumnCount(14)
-        self.indexitem = QTableWidgetItem(u'   ')
-        self.serialitem = QTableWidgetItem(u'编号')
-        self.chooseitem = QTableWidgetItem(u'选中')
-        self.usernameitem = QTableWidgetItem(u'登录名')
-        self.logitem = QTableWidgetItem(u'运行日志')
-        self.pwditem = QTableWidgetItem(u'密码')
-        self.piditem = QTableWidgetItem(u'商品编号')
-        self.purchaseitem = QTableWidgetItem(u'购买数量')
-        self.provinceitem = QTableWidgetItem(u'省')
-        self.cityitem = QTableWidgetItem(u'市')
-        self.districtitem = QTableWidgetItem(u'县/区')
-        self.detailitem = QTableWidgetItem(u'详细地址')
-        self.postcodeitem = QTableWidgetItem(u'邮编')
-        self.recieveritem = QTableWidgetItem(u'收货人')
-        self.mobileitem = QTableWidgetItem(u'手机号码')
-        self.newItem = QTableWidgetItem(u"中文测试")
-
-        self.textbr.setHorizontalHeaderItem(0, self.serialitem)
-        self.textbr.setHorizontalHeaderItem(1, self.usernameitem)
-        self.textbr.setHorizontalHeaderItem(2, self.chooseitem)
-        self.textbr.setHorizontalHeaderItem(3, self.logitem)
-        self.textbr.setHorizontalHeaderItem(4, self.pwditem)
-        self.textbr.setHorizontalHeaderItem(5, self.piditem)
-        self.textbr.setHorizontalHeaderItem(6, self.purchaseitem)
-        self.textbr.setHorizontalHeaderItem(7, self.provinceitem)
-        self.textbr.setHorizontalHeaderItem(8, self.cityitem)
-        self.textbr.setHorizontalHeaderItem(9, self.districtitem)
-        self.textbr.setHorizontalHeaderItem(10, self.detailitem)
-        self.textbr.setHorizontalHeaderItem(11, self.postcodeitem)
-        self.textbr.setHorizontalHeaderItem(12, self.recieveritem)
-        self.textbr.setHorizontalHeaderItem(13, self.mobileitem)
-        self.textbr.setItem(1, 1, self.newItem)
-        self.textbr.setColumnWidth(3, 1000)
-        self.textbr.setColumnWidth(1, 200)
-        self.textbr.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.setLayout(hbox)
-
-    def printlog(self, data):
-        print(lineno(), data)
-        self.textbr.setRowCount(data['length'])
-        for i in range(data['length']):
-            self.textbr.setVerticalHeaderItem(i, QTableWidgetItem(u'   '))
-            self.textbr.setItem(i, 0, QTableWidgetItem(unicode(i + 1)))
-            self.textbr.setItem(i, 1, QTableWidgetItem(unicode(data['account'][i])))
-            self.textbr.setItem(i, 4, QTableWidgetItem(unicode(data['pwd'][i])))
-            chkitem = QTableWidgetItem()
-            chkitem.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            chkitem.setCheckState(Qt.Checked)
-            self.textbr.setItem(i, 2, chkitem)
-            chkitem.setSelected(True)
-        self.setFocus()
+        if reply == QMessageBox.Yes:
+            subprocess.call(
+                ['ps -ef | grep phantomjs | grep -v grep | cut -c 6-15'])
+            event.accept()
+        else:
+            event.ignore()
 
 
 class Captcha(QWidget):
@@ -248,7 +253,7 @@ class Captcha(QWidget):
     def __init__(self):
         super(Captcha, self).__init__()
         hbox = QHBoxLayout(self)
-        pixmap = QPixmap("images/pysidelogo.png")
+        pixmap = QPixmap("pysidelogo.png")
         lbl = QLabel(self)
         lbl.setFrameStyle(QFrame.Panel | QFrame.Sunken)
         lbl.setPixmap(pixmap)
@@ -258,19 +263,18 @@ class Captcha(QWidget):
         lbl.setAlignment(Qt.AlignBottom | Qt.AlignRight)
 
 
-class IndexButton(QWidget):
+class IndexTab(QWidget):
     def __init__(self):
-        super(IndexButton, self).__init__()
+        super(IndexTab, self).__init__()
         self.filebutton = QPushButton(u'打开文件')
         self.startbutton = QPushButton(u'开始下单')
         self.stopbutton = QPushButton(u'停止下单')
         self.filebutton.clicked.connect(self.openfiledialog)
-        self.startbutton.clicked.connect(self.prestartbutton)
-        self.stopbutton.clicked.connect(self.prestopbutton)
+        self.startbutton.clicked.connect(self.prestartorder)
+        self.stopbutton.clicked.connect(self.prestoporder)
         self.filethread = FileThread()
         self.filethread.sg.selected.connect(self.preprintlog)
-        self.orderthread = OrderThread()
-        self.orderthread.sg.selected.connect(self.startorder, Qt.QueuedConnection)
+        ctx['filethread'] = self.filethread
         self.tbrw = TextBrowser()
         hbox = QHBoxLayout(self)
         hbox.addStretch(1)
@@ -286,52 +290,45 @@ class IndexButton(QWidget):
         user_account = [i[0] for i in raw_data]
         pwd = [i[1] for i in raw_data]
         pid = [i[2] for i in raw_data]
-        ctx['csvfile'] = raw_data
         ctx['length'] = raw_data.__len__()
         ctx['account'] = user_account
         ctx['pwd'] = pwd
         ctx['pid'] = pid
         ctx['user_list'] = raw_data
-
         self.filethread.start()
-
-        print('%s: Is Thread Running? %s' % (lineno(),
-                                             self.filethread.isRunning()))
-        print('%s: What is IdealThread Count %s' % (lineno(),
-                                                    self.filethread.idealThreadCount()))
-        print('%s: What is My Name? %s' % (lineno(),
-                                           self.filethread.objectName()))
+        print('%s: Is File Thread Alive? %s' % (lineno(),
+                                                self.filethread.isRunning()))
 
     def preprintlog(self, data):
-        print('%s: Is Thread Running? %s' % (lineno(),
-                                             self.filethread.isRunning()))
-        self.tbrw.printlog(data)
-        # print(lineno(), data)
-        print('%s: Is Thread Finished? %s' % (lineno(),
-                                              self.filethread.isFinished()))
+        print('%s: Is File Thread Alive? %s' % (lineno(),
+                                                self.filethread.isRunning()))
+        self.tbrw.compose_table(data)
 
-    def prestartbutton(self):
-        self.orderthread.start()
-        print('%s: Is Thread Finished? %s' % (lineno(),
-                                              self.filethread.isFinished()))
+    @staticmethod
+    def prestartorder():
+        for i, u in enumerate(ctx['user_list']):
+            orderthread = OrderThread(i)
+            ctx['orderthreads'] = list()
+            ctx['orderthreads'].append(orderthread)
+            ctx['name'] = u[0]
+            ctx['idx'] = i
+            setattr(orderthread, 'exiting', False)
+            orderthread.start()
+            print('%s: Is [Order Thread] Alive? %s' %
+                  (lineno(), orderthread.isRunning()))
 
-    def startorder(self, data):
-        print('%s: Is Thread Finished? %s' % (lineno(),
-                                              self.filethread.isFinished()))
-        self.orderthread.mkod(data)
-
-    def prestopbutton(self):
+    def prestoporder(self):
         self.orderthread.sg.selected.connect(self.stoporder)
 
     def stoporder(self):
-        self.orderthread.exit()
+        self.orderthread.quit()
 
 
 class FileWidget(QWidget):
     def __init__(self):
         super(FileWidget, self).__init__()
         gridlayout = QGridLayout()
-        ibtn = IndexButton()
+        ibtn = IndexTab()
         gridlayout.addWidget(ibtn.tbrw, 1, 0)
         gridlayout.addWidget(ibtn, 2, 0)
         gridlayout.addWidget(Captcha(), 3, 0)
@@ -349,14 +346,26 @@ class SetPanel(QWidget):
 
         self.threadCountLabel = QLabel(u"使用线程数:")
         self.threadCountEdit = QLineEdit()
+        self.savebutton = QPushButton(u'保存')
         self.threadCountLabel.setFixedSize(90, 35)
-
         formlayout = QFormLayout()
         formlayout.setSpacing(10)
         formlayout.addWidget(self.threadCountLabel)
         formlayout.addWidget(self.threadCountEdit, )
+        formlayout.addWidget(self.savebutton)
+        self.savebutton.clicked.connect(self.pass_count)
 
         self.setLayout(formlayout)
+
+    def pass_count(self):
+        try:
+            ctx['thread_Num'] = self.threadCountEdit.text()
+        except Exception as e:
+            raise e
+        else:
+            pass
+        finally:
+            pass
 
 
 if __name__ == '__main__':
