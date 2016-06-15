@@ -14,10 +14,18 @@
 
 ![img](images/20160607-2.png)
 
-20160614-pm:
+20160614-am:
 `线程内运行make_order函数,但执行中途出现闪退`
 ![img](images/error_20160614.png)
 
-20160614-pm-2:
+20160614-am-2:
 `使用模块级变量作为参数池, 成功打印日志, 和多线程`
 ![img](images/success_20160614.png)
+
+20160614-pm:
+`实现勾选后按照行数运行线程`
+![img](images/20160614_pm.png)
+
+20160616-am:
+`It can unchecked the item of current thread.`
+![img](images/20160615_pm.png)

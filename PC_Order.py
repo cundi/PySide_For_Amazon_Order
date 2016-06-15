@@ -26,7 +26,6 @@ logging.getLogger('').addHandler(console)
 
 reload(sys)
 sys.setdefaultencoding('utf8')
-ctx = dict()
 thread_list = list()
 
 url = "https://www.amazon.cn/ap/signin?_encoding=UTF8&openid.assoc_handle=cnflex&openid.claimed_id=\
@@ -57,16 +56,6 @@ def csv_processing(filename):
     return pre_user_info_list
 
 
-class FIleSg(QObject):
-    """
-    It will determine which type data could be to pass to Signal
-    """
-    selected = Signal(dict)
-
-    def __init__(self):
-        QObject.__init__(self)
-
-
 class OrderSg(QObject):
     selected = Signal(dict)
 
@@ -74,44 +63,39 @@ class OrderSg(QObject):
         QObject.__init__(self)
 
 
-class FileThread(QThread):
-    """
-    This used to be csv file processing.
-    """
-
-    def __init__(self):
-        super(FileThread, self).__init__()
-        self.sg = FIleSg()
-        self.name = 'i_file_thread'
-
-    def run(self):
-        print("Starting " + self.name)
-        self.sg.selected.emit(ctx)
-        print("Exiting " + self.name)
-
-
 class OrderThread(QThread):
     """
     This for Order Thread
     """
 
-    def __init__(self, num):
+    def __init__(self, row_index, user_row, tbrowser, ordths):
         super(OrderThread, self).__init__()
         self.sg = OrderSg()
-        self.name = 'i_order_thread_{}'.format(num)
-        self.mo = MakeOrder()
+        self.name = 'i_order_thread_{}'.format(row_index)
         self.exiting = True
+        self.row_index = row_index
+        self.user_row = user_row
+        self.tbrowser = tbrowser
+        self.orderthreads = ordths
 
     def run(self):
         print("Starting{},{}".format(self.name, self.isRunning()))
+        ctx = {'row_index': self.row_index, 'tbrowser': self.tbrowser, 'user_row': self.user_row}
         if not self.exiting:
-            self.mo.make_order(ctx)
+            mo = MakeOrder(ctx)
+            mo.make_order()
 
 
 class MakeOrder(object):
-    def __init__(self):
+    def __init__(self, data):
+        """
+        It Support for to use two kind of browsers which is phantomjs and firefox respectively.
+        :param data:
+        """
         self.driver = webdriver.PhantomJS(
             executable_path=phantomjs_path, desired_capabilities=dcap)
+        # self.driver = webdriver.Firefox()
+        self.data = data
 
     def check_exists_by_id(self, ele_id):
         try:
@@ -120,15 +104,18 @@ class MakeOrder(object):
             return False
         return True
 
-    def make_order(self, data):
-        i = data['idx']
-        t = ctx['tabrw']
+    def make_order(self):
+        i = self.data['row_index']
+        t = self.data['tbrowser']
+        u = self.data['user_row']
+        username = u[0]
+        password = u[1]
         self.driver.set_window_size(1366, 768)
         self.driver.get(url)
         self.driver.save_screenshot('login_screen.png')
         time.sleep(1)
-        username = data['account']
-        password = data['pwd']
+        print(lineno(), username)
+        print(lineno(), password)
         t.printlog(i, "开始登录")
         print('login, start')
         user = self.driver.find_element_by_id('ap_email')
@@ -151,9 +138,6 @@ class MakeOrder(object):
         time.sleep(1)
         self.driver.delete_all_cookies()
         print(u'已经删除了cookies： {}'.format(self.driver.get_cookies()))
-        # self.driver.get("https://www.amazon.cn/gp/flex/sign-out.html/ref=nav__gno_signout?ie=UTF8&action=sign-out\
-        #     &path=%2Fgp%2Fyourstore%2Fhome&signIn=1&useRedirectOnSuccess=1")
-        # time.sleep(30)
         self.driver.close()
 
 
@@ -181,21 +165,24 @@ class TextBrowser(QWidget):
         self.newItem = QTableWidgetItem(u"中文测试")
 
         self.textbr.setItem(1, 1, self.newItem)
-        self.textbr.setColumnWidth(3, 1000)
+        self.textbr.setColumnWidth(3, 200)
         self.textbr.setColumnWidth(1, 200)
-        self.textbr.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        # self.textbr.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setLayout(hbox)
 
     def compose_table(self, data):
-        self.textbr.setRowCount(data['length'])
-        for i, u in enumerate(data['user_list']):
+        user_rows = data['user_rows']
+        row_count = len(user_rows)
+        self.textbr.setRowCount(row_count)
+        for i, u in enumerate(user_rows):
             self.textbr.setVerticalHeaderItem(i, QTableWidgetItem(u'   '))
             self.textbr.setItem(i, 0, QTableWidgetItem(unicode(i + 1)))
             self.textbr.setItem(i, 1, QTableWidgetItem(
-                unicode(data['account'][i])))
+                unicode(u[0])))
             self.textbr.setItem(
                 i, 4, QTableWidgetItem(unicode(u[1])))
             chkitem = QTableWidgetItem()
+            setattr(self, 'table_item_{}'.format(i), chkitem)
             chkitem.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             chkitem.setCheckState(Qt.Checked)
             self.textbr.setItem(i, 2, chkitem)
@@ -260,20 +247,16 @@ class Captcha(QWidget):
         lbl.setAlignment(Qt.AlignBottom | Qt.AlignRight)
 
 
-class IndexTab(QWidget):
+class IndexTabButton(QWidget):
     def __init__(self):
-        super(IndexTab, self).__init__()
+        super(IndexTabButton, self).__init__()
         self.filebutton = QPushButton(u'打开文件')
         self.startbutton = QPushButton(u'开始下单')
         self.stopbutton = QPushButton(u'停止下单')
         self.filebutton.clicked.connect(self.openfiledialog)
-        self.startbutton.clicked.connect(self.prestartorder)
+        self.startbutton.clicked.connect(self.startorder)
         self.stopbutton.clicked.connect(self.prestoporder)
-        self.filethread = FileThread()
-        self.filethread.sg.selected.connect(self.preprintlog)
-        ctx['filethread'] = self.filethread
-        self.tbrw = TextBrowser()
-        ctx['tabrw'] = self.tbrw
+        self.tbrowser = TextBrowser()
         hbox = QHBoxLayout(self)
         hbox.addStretch(1)
         hbox.addWidget(self.filebutton)
@@ -281,39 +264,35 @@ class IndexTab(QWidget):
         hbox.addWidget(self.stopbutton)
 
     def openfiledialog(self):
+        """
+        transfer
+        """
         dialog = QFileDialog()
         fname, _ = dialog.getOpenFileName(self, 'Open file', '/home')
-        ctx['fname'] = fname
-        raw_data = csv_processing(fname)
-        user_account = [i[0] for i in raw_data]
-        pwd = [i[1] for i in raw_data]
-        pid = [i[2] for i in raw_data]
-        ctx['length'] = raw_data.__len__()
-        ctx['account'] = user_account
-        ctx['pwd'] = pwd
-        ctx['pid'] = pid
-        ctx['user_list'] = raw_data
-        self.filethread.start()
-        print('%s: Is File Thread Alive? %s' % (lineno(),
-                                                self.filethread.isRunning()))
+        user_rows = csv_processing(fname)
+        setattr(self, 'filname', fname)
+        setattr(self, 'user_rows', user_rows)
+        self.tbrowser.compose_table({'filename': fname, 'user_rows': user_rows})
 
-    def preprintlog(self, data):
-        print('%s: Is File Thread Alive? %s' % (lineno(),
-                                                self.filethread.isRunning()))
-        self.tbrw.compose_table(data)
-
-    @staticmethod
-    def prestartorder():
-        ctx['orderthreads'] = list()
-        for i, u in enumerate(ctx['user_list']):
-            orderthread = OrderThread(i)
-            ctx['orderthreads'].append(orderthread)
-            ctx['name'] = u[0]
-            ctx['idx'] = i
+    def startorder(self):
+        """
+        Before start orderthread we should to check chkitem's checked state.
+        :return:
+        """
+        orderthreads = list()
+        user_rows = self.user_rows
+        checked_rows = list()
+        for i, u in enumerate(user_rows):
+            ti = getattr(self.tbrowser, 'table_item_{}'.format(i))
+            if ti.checkState() == Qt.Checked:
+                checked_rows.append((i, u))
+        for i, u in checked_rows:
+            orderthread = OrderThread(row_index=i, user_row=u, tbrowser=self.tbrowser, ordths=orderthreads)
+            orderthreads.append(orderthread)
             setattr(orderthread, 'exiting', False)
             orderthread.start()
-            print('%s: Is [Order Thread] Alive? %s' %
-                  (lineno(), orderthread.isRunning()))
+            print('%s: Is [Order Thread %s] Alive? %s' %
+                  (lineno(), orderthread.name, orderthread.isRunning()))
 
     def prestoporder(self):
         self.orderthread.sg.selected.connect(self.stoporder)
@@ -326,8 +305,8 @@ class FileWidget(QWidget):
     def __init__(self):
         super(FileWidget, self).__init__()
         gridlayout = QGridLayout()
-        ibtn = IndexTab()
-        gridlayout.addWidget(ibtn.tbrw, 1, 0)
+        ibtn = IndexTabButton()
+        gridlayout.addWidget(ibtn.tbrowser, 1, 0)
         gridlayout.addWidget(ibtn, 2, 0)
         gridlayout.addWidget(Captcha(), 3, 0)
         self.setLayout(gridlayout)
@@ -357,7 +336,7 @@ class SetPanel(QWidget):
 
     def pass_count(self):
         try:
-            ctx['thread_Num'] = self.threadCountEdit.text()
+            thread_Num = self.threadCountEdit.text()
         except Exception as e:
             raise e
         else:
