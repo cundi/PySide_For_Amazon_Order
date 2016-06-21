@@ -29,3 +29,7 @@
 20160616-am:
 `It can unchecked the item of current thread.`
 ![img](images/20160615_pm.png)
+
+20160621-pm:
+`添加验证码处理，更新csv文件，但是UU打码平台目前只返回四位验证码，如下图：`
+![img](images/2016-06-21.png)

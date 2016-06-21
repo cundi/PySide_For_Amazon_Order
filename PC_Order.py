@@ -7,12 +7,15 @@ import time
 import subprocess
 import json
 import codecs
+import re
 
 from PySide.QtCore import *
 from PySide.QtGui import *
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from PIL import Image
+from captcha_handler import Ucode
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
@@ -128,7 +131,8 @@ class MakeOrder(object):
         i = self.data['row_index']
         t = self.data['tbrowser']
         u = self.data['user_row']
-        print(lineno(), u)
+        pid = u[4]
+        print(lineno(), pid)
         username = u[0]
         password = u[3]
         print(username, password)
@@ -141,24 +145,92 @@ class MakeOrder(object):
         t.printlog(i, "开始登录")
         print('login, start')
         user = self.driver.find_element_by_id('ap_email')
+        pwd = self.driver.find_element_by_id('ap_password')
+        self.driver.save_screenshot('before_login_success.png')
         user.send_keys(username)
         time.sleep(1)
-        pwd = self.driver.find_element_by_id('ap_password')
         pwd.send_keys(password)
         time.sleep(1)
-        self.driver.find_element_by_id("signInSubmit").click()
-        self.driver.save_screenshot('before_login_success.png')
-        if self.check_exists_by_id("auth-error-message-box"):
-            t.printlog(i, '密码不正确')
-        t.printlog(i, '登录成功')
-        # print(u'当前用户的cookies字典内容：{}'.format(self.driver.get_cookies()))
-        self.driver.save_screenshot('login_success.png')
+        if self.check_exists_by_id("auth-warning-message-box"):
+            t.printlog(i, '出现验证码')
+            captcha = self.driver.find_element_by_id(
+                'auth-captcha-image-container')
+            location = captcha.location
+            size = captcha.size
+            self.driver.save_screenshot('screenshot.png')
+            im = Image.open('screenshot.png')
+            left = location['x']
+            top = location['y']
+            right = location['x'] + size['width']
+            bottom = location['y'] + size['height']
+            im = im.crop((left, top, right, bottom))
+            im.save('screen_captcha.png')
+            uu = Ucode(user="zsqboy", pwd="gih7c00")
+            t.printlog(i, '等待远程服务器返回解析结果')
+            resoluted_captcha = uu.uu_captcha('screen_captcha.png')
+            if resoluted_captcha:
+                enter_captcha = self.driver.find_element_by_id(
+                    'auth-captcha-guess')
+                enter_captcha.send_keys(resoluted_captcha)
+                t.printlog(i, '开始点击登陆按钮')
+                self.driver.find_element_by_id("signInSubmit").click()
+                t.printlog(i, '登录成功')
+            else:
+                t.printlog(i, '验证码解析失败')
+        else:
+            t.printlog(i, '无验证码登录')
+            self.driver.find_element_by_id("signInSubmit").click()
+            if self.check_exists_by_id("auth-captcha-image-container"):
+                t.printlog(i, '点击登陆按钮后出现验证码')
+                captcha = self.driver.find_element_by_id(
+                    'auth-captcha-image-container')
+                location = captcha.location
+                size = captcha.size
+                self.driver.save_screenshot('screenshot.jpg')
+                im = Image.open('screenshot.jpg')
+                left = location['x']
+                top = location['y']
+                right = location['x'] + size['width']
+                bottom = location['y'] + size['height']
+                im = im.crop((left, top, right, bottom))
+                im.save('screen_captcha.jpg')
+                uu = Ucode(user="zsqboy", pwd="gih7c00")
+                t.printlog(i, '等待远程服务器返回解析结果')
+                resoluted_captcha = uu.uu_captcha('screen_captcha.jpg')
+                print(resoluted_captcha)
+                t.printlog(i, '{}'.format(resoluted_captcha))
+                enter_captcha = self.driver.find_element_by_css_selector(
+                        'input#auth-captcha-guess')
+                pwd = self.driver.find_element_by_id('ap_password')
+                pwd.send_keys(password)
+                time.sleep(1)
+                enter_captcha.send_keys(resoluted_captcha)
+                t.printlog(i, '开始点击登陆按钮')
+                self.driver.find_element_by_id("signInSubmit").click()
+                self.driver.save_screenshot('login_success.png')
+        try:
+            ps = self.driver.page_source
+            session_id = re.findall(r'\d{3}-\d{7}-\d{7}', ps)[0]
+        except Exception as e:
+            t.printlog(i, e.__dict__)
+        print(lineno(), session_id)
+        for p in pid.split(";"):
+            cart_url = ("https://www.amazon.cn/gp/item-dispatch/"
+                        "ref=pd_cart_recs_2_4_atc?ie=UTF8&"
+                        "session-id={}"
+                        "&quantity.{}=2&"
+                        "asin.{}={}&"
+                        "item.{}.asin={}&"
+                        "discoveredAsins.1={}&"
+                        "submit.addToCart=%E6%B7%BB%E5%8A%A0%E5%88%B0%E8%B4%AD%E7%89%A9%E8%BD%A6")
+            f_cart = cart_url.format(session_id, *(p,) * 6)
+            self.driver.get(f_cart)
+            time.sleep(1)
         time.sleep(1)
-        self.driver.get(
-            "https://www.amazon.cn/gp/collect-coupon/handler/redeem-coupon-detailpage.html?\
-            ref_=pu_redeem_coupon&encryptedPromotionId=A28K8TGDBC7AKO")
-        time.sleep(1)
-        self.driver.delete_all_cookies()
+        # self.driver.get(
+        #     "https://www.amazon.cn/gp/collect-coupon/handler/redeem-coupon-detailpage.html?\
+        #     ref_=pu_redeem_coupon&encryptedPromotionId=A28K8TGDBC7AKO")
+        # self.driver.delete_all_cookies()
         # print(u'已经删除了cookies： {}'.format(self.driver.get_cookies()))
         self.driver.close()
         t.unchecked(i)
@@ -202,7 +274,7 @@ class TextBrowser(QWidget):
         print(lineno(), 'table column is {}'.format(len(self.table_head)))
         for i, u in enumerate(user_rows):
             self.textbr.setRowHeight(i, 35)
-            print(lineno(), 'per user row coloumn length {}'.format(len(u)))
+            # print(lineno(), 'per user row coloumn length {}'.format(len(u)))
             for indx in range(len(self.table_head)):
                 item = QTableWidgetItem(unicode(u[indx]))
                 setattr(self, 'table_item_{}_{}'.format(i, indx), item)
@@ -319,7 +391,7 @@ class IndexTabButton(QWidget):
         setattr(self, 'user_rows', user_rows)
         self.tbrowser.compose_table(
             {'filename': fname, 'user_rows': user_rows})
-        print(lineno(), user_rows)
+        print(lineno(), len(user_rows))
 
     @staticmethod
     def get_thread_num():
@@ -355,7 +427,7 @@ class IndexTabButton(QWidget):
         print(lineno(), len(user_rows))
 
         checked_rows = self.get_checked_rows(u_rows=user_rows)
-        print(lineno(), checked_rows)
+        # print(lineno(), checked_rows)
         thread_num = self.get_thread_num()
         for i in checked_rows:
             orderthread = OrderThread(
@@ -365,8 +437,8 @@ class IndexTabButton(QWidget):
             pool_inst = QThreadPool.globalInstance()
             pool_inst.setMaxThreadCount(int(thread_num))
             pool_inst.start(orderthread)
-            print('%s: Is [Order Thread %s] Alive?' %
-                  (lineno(), orderthread.name))
+            # print('%s: Is [Order Thread %s] Alive?' %
+            #       (lineno(), orderthread.name))
 
     def prestoporder(self):
         """
