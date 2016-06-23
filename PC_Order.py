@@ -8,6 +8,7 @@ import subprocess
 import json
 import codecs
 import re
+import requests
 
 from PySide.QtCore import *
 from PySide.QtGui import *
@@ -16,6 +17,8 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from PIL import Image
 from captcha_handler import Ucode
+from bs4 import BeautifulSoup
+from urllib import quote
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
@@ -42,10 +45,8 @@ http%3A%2F%2Fspecs.openid.net%2Fextensions%2Fpape%2F1.0&openid.pape.max_auth_age
 https%3A%2F%2Fwww.amazon.cn%2F479-6640618-5803144%3Fref_%3Dnav_signin"
 phantomjs_path = r'/usr/local/bin/phantomjs'
 dcap = dict(DesiredCapabilities.PHANTOMJS)
-dcap["phantomjs.page.settings.userAgent"] = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/53 "
-    "(KHTML, like Gecko) firefox/15.0.87"
-)
+ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:46.0) Gecko/20100101 Firefox/46.0"
+dcap["phantomjs.page.settings.userAgent"] = (ua)
 default_thread_num = 1
 current_f_list = os.listdir(os.path.dirname(os.path.abspath('__file__')))
 loop_count = 0
@@ -131,10 +132,18 @@ class MakeOrder(object):
         i = self.data['row_index']
         t = self.data['tbrowser']
         u = self.data['user_row']
-        pid = u[4]
-        print(lineno(), pid)
         username = u[0]
         password = u[3]
+        pid = u[4]
+        print(lineno(), pid)
+        count = u[5]
+        province = u[6]
+        city = u[7]
+        district = u[8]
+        detail_addr = u[9]
+        post_code = u[10]
+        recipient = u[11]
+        phone = u[12]
         print(username, password)
         self.driver.set_window_size(1366, 768)
         self.driver.get(url)
@@ -200,38 +209,115 @@ class MakeOrder(object):
                 print(resoluted_captcha)
                 t.printlog(i, '{}'.format(resoluted_captcha))
                 enter_captcha = self.driver.find_element_by_css_selector(
-                        'input#auth-captcha-guess')
+                    'input#auth-captcha-guess')
                 pwd = self.driver.find_element_by_id('ap_password')
                 pwd.send_keys(password)
-                time.sleep(1)
+                time.sleep(3)
                 enter_captcha.send_keys(resoluted_captcha)
                 t.printlog(i, '开始点击登陆按钮')
+                time.sleep(3)
                 self.driver.find_element_by_id("signInSubmit").click()
                 self.driver.save_screenshot('login_success.png')
+        self.driver.get('https://www.amazon.cn/gp/cart/view.html/ref=nav_cart')
+        cart_page = self.driver.page_source
+        bs_page = BeautifulSoup(cart_page, "lxml")
+        cart_form = bs_page.find("form", attrs={'id': 'activeCartViewForm'})
+        ts_ele = cart_form.find("input", attrs={'name': 'timeStamp'})
+        print(ts_ele)
+        token_ele = cart_form.find("input", attrs={'name': 'token'})
+        req_id_ele = cart_form.find("input", attrs={'name': 'requestID'})
+        ts = ts_ele['value']
+        token = token_ele['value']
+        req_id = req_id_ele['value']
+        item_list = cart_form.findAll("div", attrs={'data-itemtype': 'active'})
+        item_ids = [itm['data-itemid'] for itm in item_list]
+        print(lineno(), ts, len(item_list))
+        cookie = [item["name"] + "=" + item["value"]
+                  for item in self.driver.get_cookies()]
+        cookiestr = ';'.join(item for item in cookie)
+
+        headers = {
+            'Host': 'www.amazon.cn',
+            'Connection': 'keep-alive',
+            'Origin': 'https://www.amazon.cn',
+            'X-AUI-View': 'Desktop',
+            'User-Agent': (ua),
+            'Content-Type': ('application/x-www-form-urlencoded; charset=UTF-8'),
+            'Accept': ('application/json, text/javascript, */*; q=0.01'),
+            'Referer': 'https://www.amazon.cn/gp/cart/view.html/ref=nav_cart',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept-Encoding': 'gzip, deflate br',
+            'Accept-Language': 'zh-CN,zh;q=0.8,en;q=0.6',
+            'Cookie': cookiestr,
+        }
+        form_data = {'timeStamp': ts,
+                     'token': token,
+                     'requestID': req_id,
+                     'loseAddonUpsell': 1,
+                     'flcExpanded': 1,
+                     'pageAction': 'delete-active',
+                     }
+        for sid in item_ids:
+            sd = 'submit.delete.{}'.format(sid)
+            form_data.update({sd: 1})
+            action_id = '{}'.format(sid)
+            form_data.update({'actionItemID': action_id})
+        print(form_data)
+        cart_ajax_url = 'https://www.amazon.cn/gp/cart/ajax-update.html/ref=ox_sc_cart_delete_1'
+        requests.post(url=cart_ajax_url, data=form_data, headers=headers)
+        t.printlog(i, '一次性清空购物车')
+        time.sleep(2)
         try:
             ps = self.driver.page_source
             session_id = re.findall(r'\d{3}-\d{7}-\d{7}', ps)[0]
         except Exception as e:
-            t.printlog(i, e.__dict__)
+            print(e)
         print(lineno(), session_id)
-        for p in pid.split(";"):
+        pc = zip(pid.split(';'), count.split(';'))
+        for p in pc:
             cart_url = ("https://www.amazon.cn/gp/item-dispatch/"
                         "ref=pd_cart_recs_2_4_atc?ie=UTF8&"
-                        "session-id={}"
-                        "&quantity.{}=2&"
-                        "asin.{}={}&"
-                        "item.{}.asin={}&"
-                        "discoveredAsins.1={}&"
+                        "session-id={0}"
+                        "&quantity.{1}={2}&"
+                        "asin.{1}={1}&"
+                        "item.{1}.asin={1}&"
+                        "discoveredAsins.1={1}&"
                         "submit.addToCart=%E6%B7%BB%E5%8A%A0%E5%88%B0%E8%B4%AD%E7%89%A9%E8%BD%A6")
-            f_cart = cart_url.format(session_id, *(p,) * 6)
+            f_cart = cart_url.format(session_id, p[0], p[1])
             self.driver.get(f_cart)
             time.sleep(1)
         time.sleep(1)
-        # self.driver.get(
-        #     "https://www.amazon.cn/gp/collect-coupon/handler/redeem-coupon-detailpage.html?\
-        #     ref_=pu_redeem_coupon&encryptedPromotionId=A28K8TGDBC7AKO")
-        # self.driver.delete_all_cookies()
-        # print(u'已经删除了cookies： {}'.format(self.driver.get_cookies()))
+        t.printlog(i, '全部商品加入购物车')
+        # Aceess to address selecet page.
+        checkout = self.driver.find_element_by_id('hlb-ptc-btn-native')
+        checkout.click()
+        # self.driver.get('https://www.amazon.cn/gp/buy/addressselect/handlers/display.html?hasWorkingJavascript=1')
+        addr_page = self.driver.page_source
+        bs_addr_page = BeautifulSoup(addr_page)
+        get_pv = bs_addr_page.find('input', attrs={'name': 'purchaseId'})
+        pv = get_pv['value']
+        addr_form_data = {
+            'hasWorkingJavascript': '1',
+            '__mk_zh_CN': '亚马逊网站',
+            'enterAddressFullName': recipient,
+            'enterAddressStateOrRegion': province,
+            'enterAddressCity': city,
+            'enterAddressDistrictOrCounty': district,
+            'enterAddressAddressLine1': detail_addr,
+            'enterAddressPostalCode': post_code,
+            'enterAddressPhoneNumber': phone,
+            'enterAddressCountryCode': 'CN',
+            'enterAddressIsDomestic': '1',
+            'shipToThisAddress': '配送到此地址',
+            'requestToken': '',
+            'purchaseId': pv,
+            'isBilling': '',
+            'numberOfDistinctItems': '4',
+        }
+        quote_adr = {x: quote(y) for x, y in addr_form_data.items()}
+        addr_ajax_url = 'https://www.amazon.cn/gp/buy/shipaddressselect/handlers/continue.html/ref=ox_shipaddress_add_new_addr?ie=UTF8'
+        requests.post(addr_ajax_url, data=addr_form_data, headers=headers)
+        t.printlog(i, '已经发送收货地址')
         self.driver.close()
         t.unchecked(i)
 
@@ -296,6 +382,7 @@ class TextBrowser(QWidget):
         """
         item = QTableWidgetItem()
         item.setCheckState(Qt.Unchecked)
+        print(i)
         self.textbr.setItem(i, 1, item)
 
 
@@ -430,6 +517,7 @@ class IndexTabButton(QWidget):
         # print(lineno(), checked_rows)
         thread_num = self.get_thread_num()
         for i in checked_rows:
+            print(lineno(), i[0], type(i[0]))
             orderthread = OrderThread(
                 row_index=i[0], user_row=i[1],
                 tbrowser=self.tbrowser,)
