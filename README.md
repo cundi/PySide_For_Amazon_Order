@@ -36,3 +36,6 @@
 
 20160624-am:
 `清空购物车和添加商品到购物车改为request直接发送HTTP请求，ToDo——设置收货地址和支付方式`
+
+201606024-pm:
+`直接发POST请求添加新收货地址，卡在了shipoptionselect中的itemids的获取。`

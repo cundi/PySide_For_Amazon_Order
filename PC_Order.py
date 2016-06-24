@@ -211,17 +211,19 @@ class MakeOrder(object):
                 enter_captcha = self.driver.find_element_by_css_selector(
                     'input#auth-captcha-guess')
                 pwd = self.driver.find_element_by_id('ap_password')
-                pwd.send_keys(password)
-                time.sleep(3)
                 enter_captcha.send_keys(resoluted_captcha)
                 t.printlog(i, '开始点击登陆按钮')
+                time.sleep(3)
+                pwd.send_keys(password)
                 time.sleep(3)
                 self.driver.find_element_by_id("signInSubmit").click()
                 self.driver.save_screenshot('login_success.png')
         self.driver.get('https://www.amazon.cn/gp/cart/view.html/ref=nav_cart')
+        time.sleep(2)
         cart_page = self.driver.page_source
-        bs_page = BeautifulSoup(cart_page, "lxml")
-        cart_form = bs_page.find("form", attrs={'id': 'activeCartViewForm'})
+        bs_cart_page = BeautifulSoup(cart_page, "lxml")
+        cart_form = bs_cart_page.find(
+            "form", attrs={'id': 'activeCartViewForm'})
         ts_ele = cart_form.find("input", attrs={'name': 'timeStamp'})
         print(ts_ele)
         token_ele = cart_form.find("input", attrs={'name': 'token'})
@@ -231,7 +233,7 @@ class MakeOrder(object):
         req_id = req_id_ele['value']
         item_list = cart_form.findAll("div", attrs={'data-itemtype': 'active'})
         item_ids = [itm['data-itemid'] for itm in item_list]
-        print(lineno(), ts, len(item_list))
+        print(lineno(), ts, item_ids)
         cookie = [item["name"] + "=" + item["value"]
                   for item in self.driver.get_cookies()]
         cookiestr = ';'.join(item for item in cookie)
@@ -250,6 +252,7 @@ class MakeOrder(object):
             'Accept-Language': 'zh-CN,zh;q=0.8,en;q=0.6',
             'Cookie': cookiestr,
         }
+        # construct clean up  cart form
         form_data = {'timeStamp': ts,
                      'token': token,
                      'requestID': req_id,
@@ -257,6 +260,7 @@ class MakeOrder(object):
                      'flcExpanded': 1,
                      'pageAction': 'delete-active',
                      }
+        # clear all cart items
         for sid in item_ids:
             sd = 'submit.delete.{}'.format(sid)
             form_data.update({sd: 1})
@@ -274,6 +278,7 @@ class MakeOrder(object):
             print(e)
         print(lineno(), session_id)
         pc = zip(pid.split(';'), count.split(';'))
+        # add prodct in each loop
         for p in pc:
             cart_url = ("https://www.amazon.cn/gp/item-dispatch/"
                         "ref=pd_cart_recs_2_4_atc?ie=UTF8&"
@@ -289,13 +294,24 @@ class MakeOrder(object):
         time.sleep(1)
         t.printlog(i, '全部商品加入购物车')
         # Aceess to address selecet page.
-        checkout = self.driver.find_element_by_id('hlb-ptc-btn-native')
-        checkout.click()
-        # self.driver.get('https://www.amazon.cn/gp/buy/addressselect/handlers/display.html?hasWorkingJavascript=1')
+        self.driver.get('https://www.amazon.cn/gp/cart/view.html/ref=nav_cart')
+        time.sleep(3)
+        cart_source_page = self.driver.page_source
+        bs_ct_page = BeautifulSoup(cart_source_page, "lxml")
+        get_prefetch = bs_ct_page.find(
+            'iframe', attrs={'name': 'checkoutPrefetch;'})
+        print(lineno(), get_prefetch)
+        go_checkout = get_prefetch['src']
+        new_c = go_checkout.split('&')
+        # conconacte payment hall url
+        self.driver.get('https://www.amazon.cn/gp/cart/desktop/go-to-checkout.html/ref=ox_sc_proceed?proceedToCheckout=Proceed+to+checkout&' +
+                        'a' + new_c[-1][9:] + '&' + new_c[-2])
+        t.printlog(i, '已经进入结算中心')
+        # Start push address
         addr_page = self.driver.page_source
-        bs_addr_page = BeautifulSoup(addr_page)
+        bs_addr_page = BeautifulSoup(addr_page, "lxml")
         get_pv = bs_addr_page.find('input', attrs={'name': 'purchaseId'})
-        pv = get_pv['value']
+        purchase_value = get_pv['value']
         addr_form_data = {
             'hasWorkingJavascript': '1',
             '__mk_zh_CN': '亚马逊网站',
@@ -310,14 +326,35 @@ class MakeOrder(object):
             'enterAddressIsDomestic': '1',
             'shipToThisAddress': '配送到此地址',
             'requestToken': '',
-            'purchaseId': pv,
+            'purchaseId': purchase_value,
             'isBilling': '',
             'numberOfDistinctItems': '4',
         }
-        quote_adr = {x: quote(y) for x, y in addr_form_data.items()}
+        quote_adr = {x: unicode(y) for x, y in addr_form_data.items()}
         addr_ajax_url = 'https://www.amazon.cn/gp/buy/shipaddressselect/handlers/continue.html/ref=ox_shipaddress_add_new_addr?ie=UTF8'
-        requests.post(addr_ajax_url, data=addr_form_data, headers=headers)
+        requests.post(addr_ajax_url, data=quote_adr, headers=headers)
         t.printlog(i, '已经发送收货地址')
+        # Fetch Item ID
+        self.driver.get(
+            'https://www.amazon.cn/gp/buy/shipoptionselect/handlers/display.html?hasWorkingJavascript=1')
+        time.sleep(2)
+        line_itemids_page = self.driver.page_source
+        bs_ship_item_page = BeautifulSoup(line_itemids_page, "lxml")
+        get_ship_itemids = bs_ship_item_page.find('input', atrrs={'name': 'lineItemEntityIds_0'})
+        print(lineno(), get_ship_itemids)
+        ship_item_ids = get_ship_itemids['value']
+        t.printlog(i, '获得ItemID')
+        print(lineno(), ship_item_ids)
+        # Construct url for place order
+        self.driver.get(
+            'https://www.amazon.cn/gp/buy/spc/handlers/display.html?hasWorkingJavascript=1')
+        pre_place_order_url = 'https://www.amazon.cn/gp/buy/spc/handlers/static-submit-decoupled.html/ref=ox_spc_place_order?ie=UTF8&hasWorkingJavascript=&pickupType=All&searchCriterion=storeZip&storeZip=330000&storeZip2=&searchLockerFormAction=/gp/buy/storeaddress/handlers/search.html/ref=ox_spc_shipaddr_pickupsearch_popover&claimCode=&primeMembershipTestData=NULL&fasttrackExpiration=34064&countdownThreshold=0&countdownId=0&showSimplifiedCountdown=0&dupOrderCheckArgs={0}|{1}|jijgotisrop|A1AJ19PSB66TGU&dupOrderCheckArgs={0}|{1}|jijgotisrop|A1AJ19PSB66TGU&dupOrderCheckArgs={0}|{1}|jijgotisrop|A1AJ19PSB66TGU&dupOrderCheckArgs={0}|{1}|jijgotisrop|A1AJ19PSB66TGU&order0=std-cn-d2d-mpos-avail&shippingofferingid0.0=AY9S6YNFH5C2J&guaranteetype0.0=NOT_GUARANTEED&issss0.0=1&forceshipsplitpreference0.0=shipWhenComplete&shippingofferingid0.1=A2MV3ZHLIKP2WJ&guaranteetype0.1=GUARANTEED&issss0.1=0&forceshipsplitpreference0.1=shipWhenComplete&shippingofferingid0.2=A3K7TSCNVD2X6M&guaranteetype0.2=NOT_GUARANTEED&issss0.2=0&forceshipsplitpreference0.2=&previousshippingofferingid0=A2MV3ZHLIKP2WJ&previousguaranteetype0=GUARANTEED&previousissss0=0&previousshippriority0=shipWhenComplete&lineitemids0={3}&currentshippingspeed=std-cn-d2d-mpos-avail&currentshipsplitpreference=shipWhenComplete&shippriority.0.shipWhenComplete=shipWhenComplete&order.0.deliveryTimePreference=anyday_cn_71877&groupcount=1&snsUpsellTotalCount=&onmlUpsellSuppressedCount=&vasClaimBasedModel=0&isfirsttimecustomer=0&isTFXEligible=&isFxEnabled=&isFXTncShown=&chinaInvoiceTitle=&isTitleCompany=1&fromAnywhere=0&redirectOnSuccess=0&purchaseTotal=211.2&purchaseTotalCurrency=CNY&purchaseID={2}&useCtb=1&scopeId=T4Q7PXXBBDRQ9D7PCWRK&isQuantityInvariant=&promiseTime-0=1466784000&promiseAsin-0={0}&promiseTime-0=1466784000&promiseAsin-0={0}&promiseTime-0=1466784000&promiseAsin-0={0}&promiseTime-0=1466784000&promiseAsin-0={0}&hasWorkingJavascript=1&placeYourOrder1=1'
+        for op in pc:
+            pou = pre_place_order_url.format(
+                op[0], op[1], purchase_value,)
+            self.driver.get(pou)
+        # did_payment = 'https://www.amazon.cn//gp/buy/payselect/handlers/static-continue.html/ref=ox_pay_page_continue'
+        t.printlog(i, '订单提交成功')
         self.driver.close()
         t.unchecked(i)
 
